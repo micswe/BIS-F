@@ -27,7 +27,7 @@
 		15.08.2019 MS: FRQ 88 - Supporting McAfee Endpoint Security (thanks to Wing2005)
 		15.08.2019 MS: Added .SYNOPSIS to all functions and using recommended POSH Verbs for functions too
 		03.10.2019 MS: ENH 51 - ADMX Extension: select AnitVirus full scan or custom Scan arguments
-		23.05.2020 MS: HF 214 - McAfee MOVE Self Protection blocks the modification of the registry
+		06.07.2020 MICSWES: Remove-VSEData Add Support for Agent 5.6
 
 
 	.LINK
@@ -109,7 +109,6 @@ Process {
 		History:
 			15.12.2014 JP: Added automatic virus definitions updates
 			28.04.2019 wing2005: Added Parameter - due to change in update mchanism
-			18.02.2020 JK: Fixed Log output spelling
 
 		#>
 
@@ -204,7 +203,7 @@ Process {
 			10.12.2014 MS: script created
 
 		#>
-
+		
 		If ($reg_agent_version -lt "5.0") {
 			Invoke-BISFService -ServiceName "$ServiceName1" -Action Stop
 			Invoke-BISFService -ServiceName "$ServiceName2" -Action Stop
@@ -215,7 +214,7 @@ Process {
 				Remove-ItemProperty -Path $reg_product_string -Name $key -ErrorAction SilentlyContinue
 			}
 		}
-		If ($reg_agent_version -ge "5.0") {
+		If (($reg_agent_version -ge "5.0") -and ($reg_agent_version -lt "5.6")) {
 
 			$found = $false
 			Write-BISFLog -Msg "Searching for $PrepApp on the system" -ShowConsole -Color DarkCyan -SubMsg
@@ -233,6 +232,12 @@ Process {
 				}
 			}
 		}
+
+		# https://docs.mcafee.com/bundle/agent-5.6.x-installation-guide/page/GUID-7264ED00-8FFC-49B8-9A21-07FF12D2EA88.html
+		If ($reg_agent_version -ge "5.6"){
+			Write-BISFLog -Msg "No need to remove GUID"
+		}
+
 	}
 
 	Function Remove-Agent10Data {
@@ -251,10 +256,7 @@ Process {
 
 		History:
 			28.03.2019 MS: script created
-			23.05.2020 MS: HF 214 - McAfee MOVE Self Protection blocks the modification of the registry
 		#>
-
-		powershell -command "mvadm config set IntegrityEnabled=0"
 
 		Write-BISFLog -Msg "Remove Registry $HKLMAgent10path1 - Key $HKLMAgent10key1" -ShowConsole -Color DarkCyan -SubMsg
 		Remove-ItemProperty -Path $HKLMAgent10path1 -Name $HKLMAgent10key1 -ErrorAction SilentlyContinue
@@ -268,7 +270,6 @@ Process {
 		Write-BISFLog -Msg "Update Registry $HKLMAgent10path2 - Key $HKLMAgent10key2_3"
 		Set-ItemProperty -Path $HKLMAgent10path2 -Name $HKLMAgent10key2_3 -value "" -Force
 
-		powershell -command "mvadm config set IntegrityEnabled=7"
 
 	}
 
@@ -310,7 +311,7 @@ Process {
 		Remove-VSEData
 	}
 	Else {
-		Write-BISFLog -Msg "Product $Product20 is NOT installed"
+		Write-BISFLog -Msg "Product $Product20 NOT installed"
 	}
 
 }
