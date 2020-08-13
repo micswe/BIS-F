@@ -65,7 +65,6 @@ param(
 		14.08.2019 MS: FRQ 3 - Remove Messagebox and using default setting if GPO is not configured
 		03.10.2019 MS: ENH 65 - ADMX Extension to delete the log files for Citrix Optimizer
 		27.01.2020 MS: HF 167 - Moving AppLayering Layer Finalize to Post BIS-F script
-		18.02.2020 JK: Fixed Log output spelling
 
 
 	.Link
@@ -244,7 +243,7 @@ Begin {
 	function Test-MSMQ {
 		$servicename = "MSMQ"
 		$svc = Test-BISFService -ServiceName "$servicename"
-		IF ($svc) { Write-BISFLog -Msg "Random QMID will be generated during system startup" -ShowConsole -Color Cyan }
+		IF ($svc) { Write-BISFLog -Msg "Random QMID would be generated during system startup" -ShowConsole -Color Cyan }
 	}
 
 
@@ -268,7 +267,6 @@ Begin {
 			03.10.2019 MS: ENH 139 - WEM 1909 detection (tx to citrixguyblog / chezzer64)
 			04.10.2019 MS: ENH 11 - ADMX extension: Configure WEM Cache to persistent drive
 			10.01.2020 MS: HF 180 - IF WEM Config is not configured it's processes to reconfigure too
-			02.02.2020 MS: fix description for WEMCache
 
 	.LINK
 		https://eucweb.com
@@ -316,12 +314,13 @@ Begin {
 
 					if (Get-ItemProperty $REG_WEMAgentHost -Name "CloudConnectorList") {
 						$WEMAgentHostBrokerName = (Get-ItemProperty $REG_WEMAgentHost).CloudConnectorList
-						IF (!$WEMAgentHostBrokerName) { Write-BISFLog -Msg "WEM Agent Cloud Connector not specified through WEM ADMX" } ELSE { Write-BISFLog -Msg "WEM Agent CloudConnector: $WEMAgentHostBrokerName" }
+						IF (!$WEMAgentHostBrokerName) { Write-BISFLog -Msg "WEM Agent CloudConnector not specified through WEM ADMX" } ELSE { Write-BISFLog -Msg "WEM Agent CloudConnector: $WEMAgentHostBrokerName" }
 					}
 
 
-
-					IF (($Redirection -eq $true) -and ($LIC_BISF_CLI_WEMCache -eq 1)) {
+					#IF (($Redirection -eq $true) -and ($LIC_BISF_CLI_WEMCache -eq 1)) {
+					# micswe 13082020
+					IF (($LIC_BISF_CLI_WEMCache -eq 1)) {
 						IF ($PVSDiskDrive -ne $WEMAgentCacheDrive) {
 							IF ($LIC_BISF_CLI_WEMb -eq 1) {
 								Write-BISFLog -Msg "Use custom WEM Cache Folder"
@@ -331,8 +330,8 @@ Begin {
 								$NewWEMAgentCacheLocation = "$LIC_BISF_CtxPath\$AgentCacheFolder"
 							}
 
-							Write-BISFLog -Msg "The WEM Agent cache drive ($WEMAgentCacheDrive) is not equal to the CacheDisk ($PVSDiskDrive)" -Type W -SubMsg
-							Write-BISFLog -Msg "The AgentCacheAlternateLocation value will be reconfigured to $NewWEMAgentCacheLocation" -Type W -SubMsg
+							Write-BISFLog -Msg "The WEM Agent cache drive ($WEMAgentCacheDrive) is not equal to the PVS WriteCache disk ($PVSDiskDrive)" -Type W -SubMsg
+							Write-BISFLog -Msg "The AgentCacheAlternateLocation value must be reconfigured now to $NewWEMAgentCacheLocation" -Type W -SubMsg
 
 							IF (!(Test-Path "$NewWEMAgentCacheLocation")) {
 								Write-BISFLog -Msg "Creating folder $NewWEMAgentCacheLocation" -ShowConsole -Color DarkCyan -SubMsg
@@ -347,7 +346,7 @@ Begin {
 							$WEMAgentCacheUtil = "$WEMAgentLocation" + "AgentCacheUtility.exe"
 						}
 						ELSE {
-							Write-BISFLog -Msg "The WEM Agent cache drive ($WEMAgentCacheDrive) is equal to the CacheDisk ($PVSDiskDrive) and must not be reconfigured" -ShowConsole -SubMsg -Color DarkCyan
+							Write-BISFLog -Msg "The WEM Agent cache drive ($WEMAgentCacheDrive) is equal to the PVS or MCSIO CacheDisk ($PVSDiskDrive) and must not be reconfigured" -ShowConsole -SubMsg -Color DarkCyan
 						}
 
 						Write-BISFLog -Msg "Running Agent Cache Management Utility with $product" -ShowConsole -Color DarkCyan -SubMsg
@@ -516,7 +515,7 @@ Begin {
 									}
 								}
 								ELSE {
-									Write-BISFLog -Msg "ERROR: Citrix Optimizer Template $CTXOTemplatePath\$template does NOT exist!" -Type E -SubMsg
+									Write-BISFLog -Msg "ERROR: Citrix Optimizer Template $CTXOTemplatePath\$template NOT exists !!" -Type E -SubMsg
 								}
 							}
 						}
@@ -535,11 +534,11 @@ Begin {
 	function Invoke-CDS {
 		$servicename = "BrokerAgent"
 		IF ($LIC_BISF_CLI_CDS -eq "1") {
-			Write-BISFLog -Msg "The $servicename is configured through ADMX.. delay operation configured" -ShowConsole -Color Cyan
+			Write-BISFLog -Msg "The $servicename would configured through ADMX.. delay operation configured" -ShowConsole -Color Cyan
 			Invoke-BISFService -ServiceName "$servicename" -StartType disabled -Action stop
 		}
 		ELSE {
-			Write-BISFLog -Msg "The $servicename is not configured through ADMX.. normal operation state"
+			Write-BISFLog -Msg "The $servicename would not configured through ADMX.. normal operation state"
 			Invoke-BISFService -ServiceName "$servicename" -StartType Automatic -Action start
 		}
 
