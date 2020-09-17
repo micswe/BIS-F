@@ -1051,9 +1051,11 @@
       </disabledList>
       <elements>
         <text id="TXT_PVSHydration_Paths" key="Software\Policies\Login Consultants\BISF" valueName="LIC_BISF_CLI_PVSHydration_Paths" />
+        <text id="TXT_PVSHydration_ExcludePaths" key="Software\Policies\Login Consultants\BISF" valueName="LIC_BISF_CLI_PVSHydration_ExcludePaths" />
         <text id="TXT_PVSHydration_Extensions" key="Software\Policies\Login Consultants\BISF" valueName="LIC_BISF_CLI_PVSHydration_Extensions" />
       </elements>
     </policy>
+
     <policy name="POL_VDACfg" class="Machine" displayName="$(string.POL_VDACfg)" explainText="$(string.POL_VDACfg_Help)" presentation="$(presentation.POL_VDACfg)" key="SOFTWARE\Policies\Login Consultants\BISF" valueName="LIC_BISF_POL_VDACfg">
       <parentCategory ref="CAT_CTX" />
       <supportedOn ref="windows:SUPPORTED_WindowsVista" />
