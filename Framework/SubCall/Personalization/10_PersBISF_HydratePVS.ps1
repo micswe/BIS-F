@@ -16,6 +16,7 @@
 		  01.04.2020 Micswe: Add PVS Disk mode
 		  20.04.2020 Micswe: Add Work Hours, Skip Hydrate on boot in WorkHourse
 		  24.04.2020 Micswe: BugFix hang on many Clients
+		  19.09.2020 Micswe: Add Exclude FolderPath
 
 	  .Link
 		  https://github.com/EUCweb/BIS-F/issues/129
@@ -33,7 +34,7 @@ Begin {
 	if ($LIC_BISF_CLI_PVSHydration -eq "NO") { $DisableMode = $true }
 	$PathsToCache = $LIC_BISF_CLI_PVSHydration_Paths
 	$ExtensionsToCache = $LIC_BISF_CLI_PVSHydration_Extensions
-	[int]$only_runfrom=17
+	$PathsToExclude = $LIC_BISF_CLI_PVSHydration_ExcludePaths
 	[int]$only_runto=5
 	[bool]$check_Work_Hour=$true
 }
@@ -89,11 +90,25 @@ Process {
 			Return
 		}
 
-		foreach ($Path in ($PathsToCache.split("|"))) {
-			Write-BISFLog -Msg "Caching files with extensions $ExtensionsToCache in $Path" -ShowConsole -Color Cyan
-			foreach ($File in (Get-ChildItem -Path $Path -Recurse -File -Include $ExtensionsToCache.Split(","))) {
-				FileToCache -File $File
-			}
+		#foreach ($Path in ($PathsToCache.split("|"))) {
+		#	Write-BISFLog -Msg "Caching files with extensions $ExtensionsToCache in $Path" -ShowConsole -Color Cyan
+		#	foreach ($File in (Get-ChildItem -Path $Path -Recurse -File -Include $ExtensionsToCache.Split(","))) {
+		#		FileToCache -File $File
+		#	}
+		#}
+
+		foreach ($Path in ($PathsToCache.split("|"))) { 
+            Write-BISFLog -Msg "Caching files with extensions $ExtensionsToCache in $Path" -ShowConsole -Color Cyan
+            $noDirRegex='^{0}' -f ($PathsToExclude.Replace("\","\\").Replace("(","\(").Replace(")","\)").Split("|") -join ('|^'))            
+            Write-BISFLog -Msg "RegEx: $noDirRegex" -ShowConsole -Color Yellow
+
+            foreach ($File in (Get-ChildItem -Path $Path -Recurse -File -Include $ExtensionsToCache.Split(","))) 
+            { 
+                if ($File.DirectoryName -inotmatch $noDirRegex) 
+                { 
+			   		FileToCache -File $File
+                } 
+            }                     
 		}
 	}
 	else
