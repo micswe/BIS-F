@@ -115,6 +115,11 @@ param(
 		13.01.2019 MS: HF 186 - deletion of C:\Windows\temp without GPO control is not possible
 		18.02.2020 JK: Fixed Log output spelling
 		23.05.2020 MS: HF 220 - fix typo for DirtyShutdown Flag
+		31.07.2020 MS: HF 266 - fixing typo
+		01.08.2020 MS: HF 252 - supporting new NVIDIA Drivers
+		16.08.2020 MS: HF 278 - Citrix AppLayering Finalize - Change NGEN Option
+		22.11.2020 MS: HF 288 - ngen executes extremely long -> ADMX Update to specify .NET Settings
+		22.11.2020 MS: HF 285 - Azure Active Directory (AAD) support to leave AAD during preparation
 
 	.LINK
 		https://eucweb.com
@@ -461,28 +466,78 @@ Begin {
 		}
 	}
 
-
-	IF (!($LIC_BISF_CLI_DotNet -eq "NO")) {
-
-		### Executing all queued .NET compilation jobs - Precompiling assemblies with Ngen.exe can improve the startup time for some applications.
-		$NgenPath = Get-ChildItem -Path 'C:\Windows\Microsoft.NET' -Recurse "ngen.exe" | % { $_.FullName }
-		foreach ($element in $NgenPath) {
-			Write-BISFLog -Msg  "Read Ngen Path: $element"
+	IF ($LIC_BISF_POL_MS_AAD -eq 1) {
+		Write-BISFLog -Msg "Running Microsoft Azure Active Directory Tasks" -ShowConsole -Color Cyan
+		$DSRegValue = Get-BISFDSRegState -Key "AzureADjoined"
+		IF ($DSRegValue -eq "YES")  {
 			$PrepCommands += [pscustomobject]@{
 				Order       = "$ordercnt";
 				Enabled     = "$true";
-				showmessage = "N";
-				CLI         = "";
+				showmessage = "Y";
+				cli         = "LIC_BISF_CLI_MS_AAD_HybridJoinb";
 				TestPath    = "";
-				Description = "Executing all queued .NET compilation jobs for $element";
-				Command     = "Start-BISFProcWithProgBar -ProcPath '$element' -Args 'ExecuteQueuedItems' -ActText 'Running .NET Optimization in $element'"
+				Description = "leave Azure AD Domain ";
+				Command     = "Start-BISFProcWithProgBar -ProcPath '$env:windir\system32\dsregcmd.exe' -Args '/leave' -ActText 'leave Azure AD Domain'"
 			};
 			$ordercnt += 1
+
+			$PrepCommands += [pscustomobject]@{
+				Order 		= "$ordercnt";
+				Enabled 	= "$true";
+				showmessage = "Y";
+				cli 		= "LIC_BISF_CLI_MS_AAD_HybridJoinb";
+				TestPath 	= "";
+				Description = "Get Azure AD Domain Status";
+				Command 	= "Start-BISFProcWithProgBar -ProcPath '$env:windir\system32\dsregcmd.exe' -Args '/status' -ActText 'Get Azure AD Domain status'"
+			};
+			$ordercnt += 1
+
+		} else {
+			Write-BISFLog -Msg "VM is NOT Azure Active Directory joined"
 		}
+
+	} else {
+		Write-BISFLog -Msg "Microsoft Azure Active Directory Task not configured or disabled in ADMX"
 	}
-	ELSE {
-		Write-BISFLog -Msg "Microsoft .NET Optimization is disabled in ADMX"
+
+
+	IF ($LIC_BISF_CLI_DotNet -eq "YES") {
+
+		$NgenPath = Get-ChildItem -Path 'C:\Windows\Microsoft.NET' -Recurse "ngen.exe" | % { $_.FullName }
+		foreach ($element in $NgenPath) {
+			Write-BISFLog -Msg  "Read Ngen Path: $element"
+
+			### Executing Optimization 1
+			$PrepCommands += [pscustomobject]@{
+				Order = "$ordercnt";
+				Enabled = "$true";
+				showmessage = "Y";
+				CLI = "LIC_BISF_CLI_NET_OPT1b";
+				TestPath = "";
+				Description = ".NET Optimization 1: $LIC_BISF_CLI_NET_OPT1txt - $element";
+				Command = "Start-BISFProcWithProgBar -ProcPath '$element' -Args '$LIC_BISF_CLI_NET_OPT1args' -ActText '.NET Optimization 1: $LIC_BISF_CLI_NET_OPT1txt - $element'"
+			};
+			$ordercnt += 1
+
+			### Executing Optimization 2
+			$PrepCommands += [pscustomobject]@{
+				Order = "$ordercnt";
+				Enabled = "$true";
+				showmessage = "Y";
+				CLI = "LIC_BISF_CLI_NET_OPT2b";
+				TestPath = "";
+				Description = ".NET Optimization 2: $LIC_BISF_CLI_NET_OPT2txt - $element";
+				Command = "Start-BISFProcWithProgBar -ProcPath '$element' -Args '$LIC_BISF_CLI_NET_OPT2args' -ActText '.NET Optimization 2: $LIC_BISF_CLI_NET_OPT2txt - $element'"
+			};
+			$ordercnt += 1
+
+		}
+
+	} ELSE {
+		Write-BISFLog -Msg "Microsoft .NET Optimization not configured or disabled in ADMX"
 	}
+
+
 
 
 		## Read language specified adapter name to support mui installations for each customer
@@ -760,34 +815,36 @@ Begin {
 	}
  ELSE {
 		IF ($LIC_BISF_CLI_VDA_NVDIAGRID -eq 1) {
-			$svc = Test-BISFService -ServiceName "nvsvc" -ProductName "nVIDIA Diplay Driver Service"
-			IF ($svc -eq $true) {
-				Write-BISFLog -Msg "VDA Version $VDAVersion" -ShowConsole
-				IF ($VDAVersion -le "7.11") {
-					$cmd = "$glbSVCImagePath\bin\Montereyenable.exe" # $glbSVCImagePath is getting from Test-BISFService
-					$args = "-enable -noreset"
+			$NvidiaServiceName = @("nvsvc","NVWMI")
+			Foreach ($ServiceName in $NvidiaServiceName) {
+				$ServiceDisplayName = $(Get-Service -Name $ServiceName).DisplayName
+				$svc = Test-BISFService -ServiceName $ServiceName -ProductName $ServiceDisplayName
+				IF ($svc -eq $true) {
+					Write-BISFLog -Msg "VDA Version $VDAVersion" -ShowConsole
+					IF ($VDAVersion -le "7.11") {
+						$cmd = "$glbSVCImagePath\bin\Montereyenable.exe" # $glbSVCImagePath is getting from Test-BISFService
+						$args = "-enable -noreset"
+					}
+
+					IF ($VDAVersion -ge "7.12") {
+						$cmd = "$glbSVCImagePath\bin\NVFBCEnable.exe" # $glbSVCImagePath is getting from Test-BISFService
+						$args = "-enable -noreset"
+					}
+
+					$PrepCommands += [pscustomobject]@{
+						Order       = "$ordercnt";
+						Enabled     = "$true";
+						showmessage = "N";
+						CLI         = "";
+						TestPath    = "$cmd";
+						Description = "Enable NVIDIA GRID with command $cmd $args";
+						Command     = "Start-BISFProcWithProgBar -ProcPath '$cmd' -Args '$args' -ActText 'Enable NVIDIA GRID for VDA Version $VDAVersion'"
+					};
+					$ordercnt += 1
 				}
-
-				IF ($VDAVersion -ge "7.12") {
-					$cmd = "$glbSVCImagePath\bin\NVFBCEnable.exe" # $glbSVCImagePath is getting from Test-BISFService
-					$args = "-enable -noreset"
+				ELSE {
+					Write-BISFLog -Msg "$ServiceDisplayName is not installed and can't be enabled" -ShowConsole -Type W
 				}
-
-				$PrepCommands += [pscustomobject]@{
-					Order       = "$ordercnt";
-					Enabled     = "$true";
-					showmessage = "N";
-					CLI         = "";
-					TestPath    = "$cmd";
-					Description = "Enable NVIDIA GRID with command $cmd $args";
-					Command     = "Start-BISFProcWithProgBar -ProcPath '$cmd' -Args '$args' -ActText 'Enable NVIDIA GRID for VDA Version $VDAVersion'"
-				};
-				$ordercnt += 1
-
-
-			}
-			ELSE {
-				Write-BISFLog -Msg "NVIDIA Display Driver is not installed and can't be enabled" -ShowConsole -Type W
 			}
 		}
 
@@ -853,7 +910,7 @@ Begin {
 						Invoke-Expression $($prepCommand.Command)
 					}
 					ELSE {
-						Write-BISFLog -Msg " Skipping Commannd $($prepCommand.Description)" -ShowConsole -Color DarkCyan -SubMsg
+						Write-BISFLog -Msg " Skipping Command $($prepCommand.Description)" -ShowConsole -Color DarkCyan -SubMsg
 					}
 				}
 				# these 2 variables must be cleared after each step, to not store the value in the variable and use them in the next $prepCommand

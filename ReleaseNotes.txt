@@ -1,13 +1,65 @@
-﻿24.05.2020 MS: HF 187 - VDA 1912 inside AppLayering Packaging VM wrong Layer back
+23.12.2020 MS: HF 304 - WEM Agent 2012, add new startup options to ADMX
+23.12.2020 JS: HF 303 - Updated CheckCDRom function to allow for builds where CDROM drive letter has already been removed
+23.12.2020 JS: HF 302 - WriteCache disk access validated in Set-Logfile function before log move
+17.12.2020 MW: HF 042 - EventLog is moved, but Path is never changed
+16.12.2020 MW: HF 299 - Not so fast reconnect in Windows Server 2019
+14.12.2020 MS: HF 297 - MCS CacheDisk is not right formatted
+09.12.2020 MS: HF 296 - 10_PrepBISF_SCCM.ps1 - additional sealing steps
+05.12.2020 MS: HF 294 - 10_PersBISF_FSlogix.ps1 / using registry policy vlaue from $LIC_BISF_CLI_RS to get the central rules share
+05.12.2020 MS: HF 294 - 10_PrepBISF_FSlogix.ps1 / function Set-RulesShare no longer required, RulesShare is set in registry policy path
+24.11.2020 MS: HF 285 - AAD Hybrid Support to Leave / Join
+22.11.2020 MS: HF 288 - ngen executes extremely long -> ADMX Update to specify .NET Settings
+21.11.2010 MS: HF 280 - Log Message for "pending reboot error"
+21.11.2020 MS: HF 284 - MPCmdRun Process monitor with the current user only, exclude other accounts
+21.11.2020 MS: HF 289 - terminate ccmexec process before stopping the service
+---------------------------------
+Version 7.1912.5.11040 -- 16/09/2020 08:15:17 AM:
+16.08.2020 MS: HF 278 - Citrix AppLayering Finalize - Change NGEN Option
+09.08.2020 MS: HF 272 - Central PERS Logs are missing the beginning
+04.08.2020 MS: HF 271 - 00_PersBISF_WriteCacheDisk.ps1 fails, due to timing issue with registry values
+02.08.2020 MS: HF 270 - PersBISF_Start.ps1 Script Causing all installed Applications to Reconfigure
+01.08.2020 MS: HF 255 - MSI installer creates two entries under the Uninstall key
+01.08.2020 MS: HF 252 - supporting new NVIDIA Drivers
+01.08.2020 MS: HF 265 - Office 2010 rearm is not performed
+01.08.2020 MS: HF 269 - Office detection takes too long, using reg instead of WMI
+01.08.2020 MS: HF 258 - ADML: typo in Configure Personalization
+01.08.2020 MS: HF 260 - McAfee add support for 5.6.x
+01.08.2020 MS: HF 261 - CylanceProtect fix Errorhandling
+01.08.2020 MS: HF 262 - UPL + PVS Target Device Driver doesn't convert VHDX
+31.07.2020 MS: HF 268 - Using SID to translate it to the real name to support MUI Systems
+31.07.2020 MS: HF 266 - Typo in 97_PrepBISF_PRE_BaseImage.ps1
+31.07.2020 MS: HF 267 - Personalization action is running two times (Script 01_PersBISF_TimeAndGPO.ps1 removed)
+28.06.2020 MS: HF 253 - VDA SSL Wildcard Cert Case Sensitive (Line 176 & 178)
+28.06.2020 MS: HF 257 - Azure WVD not detected
+---------------------------------
+Version 7.1912.4.11038 -- 21/06/2020 20:57:02 PM:
+18.06.2020 MS: HF 249 - WEMCache folder will be reconfigured if UPL is installed (Use-PVSonfig/Use-MCSConfig)
+18.06.2020 MS: HF 251 - Wrong Citrix AppLayering Layer detected with UPL and on Server OS
+16.06.2020 MS: HF 250 - VDA SSL Wildcard Support (Line 177 - 179)
+15.06.2020 MS: HF 247 - function Test-AppLayeringSoftware - DomainMember output - missing $
+---------------------------------
+Version 7.1912.3.11037 -- 15/06/2020 06:32:36 AM:
+15.06.2020 MS: Fix evalution notification in MSI installer
+---------------------------------
+Version 7.1912.3.11036 -- 15/06/2020 06:31:12 AM:
+15.06.2020 MS: Fix evalution notification in EXE installer
+---------------------------------
+Version 7.1912.3.11034 -- 13/06/2020 19:15:55 PM:
+05.06.2020 MS: ENH 225 - Providing MSI Installer
+---------------------------------
+Version 7.1912.3.11033 -- 13/06/2020 19:14:34 PM:
+05.06.2020 MS: HF 233 - Skipping ApexOne, checkout https://github.com/EUCweb/BIS-F/issues/233 for further informations
+05.06.2020 DS: HF 240 - SSLVDA optimization with Certificate determination, Auto enrollment option, Skip certificate verification
+03.06.2020 MS: HF 233 - TM Process not killed, using new function Stop-BISFProcesses
+01.06.2020 MS: HF 187 - VDA 1912 inside AppLayering Packaging VM wrong Layer back
+01.06.2020 MS: HF 238 - CylanceProtect - VDI Fingerprinting support
 24.05.2020 MS: HF 239 - Invoke-FolderScripts is relying on the default order from Get-ChildItem
 24.05.2020 MS: HF 242 - Shared Configuration Errorhandling if FilePath is Null Or Empty
 23.05.2020 MS: ENH 241 - skip PVS UNC vDisk Size if PVS Master Image is skipped
 23.05.2020 MS: HF 229 - Shut Down after generalization is not completing if PVS image creation is skipped
-23.05.2020 MS: HF 233 - TrendMicro Apex One process not killed
 23.05.2020 MS: HF 236 - No MSFT_NetAdapterRssSettingData objects found
 23.05.2020 MS: HF 226 - App-V Powershell Module Could Not Be Loaded
-23.05.2020 MS: HF 240 - EnableSSLVDA optimization
-23.05.2020 MS: HF 217 - Notification only -> Powershell Version 5 as minimum requirement
+23.05.2020 MS: HF 217 - Powershell Version 5 Notification
 23.05.2020 MS: HF 214 - McAfee MOVE Self Protection blocks the modification of the registry
 23.05.2020 MS: HF 231 - Skipping file precache if vDisk is in private Mode
 23.05.2020 MS: HF 220 - fix typo for DirtyShutdown Flag

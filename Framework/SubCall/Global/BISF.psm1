@@ -31,11 +31,14 @@
 	07.01.2020 MS: HF 176 - $Global:ImageSW request is set one Time only
 	18.02.2020 JK: Fixed Log output spelling
 	24.02.2020 MS: ENH 200 - new Advanced Installer - change to get $InstallLocation and $BISFversion
+	04.08.2020 MS: HF 271 - 00_PersBISF_WriteCacheDisk.ps1 fails, due to timing issue with registry values
+	04.08.2020 MS: HF 272 - Central PERS Logs are missing the beginning
 
 .LINK
 	https://eucweb.com
 #>
 
+	Write-BISFLog -Msg "- - - Start Script - - - "
 	Write-BISFFunctionName2Log -FunctionName ($MyInvocation.MyCommand | ForEach-Object { $_.Name })  #must be added at the begin to each function
 	Write-BISFLog -Msg "Checking Prerequisites" -ShowConsole -color Cyan
 	$Global:computer = Get-Content env:computername
@@ -68,6 +71,8 @@
 	$Global:AppLayNoELMCfg = "BISFconfig_AppLay_NoELM.json"
 	$Global:ImageSW = $false
 	Import-BISFSharedConfiguration -Verbose:$VerbosePreference
+	Write-BISFlog -Msg "Apply Computer GPO" -showConsole -Color Cyan
+	Start-BISFProcWithProgBar -ProcPath "$env:SystemRoot\system32\gpupdate.exe" -Args "/Target:Computer /Force /Wait:0" -ActText "Apply Computer GPO" | Out-Null
 	Get-BISFCLIcmd -Verbose:$VerbosePreference #must be running before the $Global:PVSDiskDrive = $LIC_BISF_CLI_WCD is set
 
 	IF ($LIC_BISF_CLI_MCSCfg -eq "YES") {
@@ -811,7 +816,7 @@ function Show-ProgressBar {
 			}
 		}
 
-		if ($ProcessActive -eq $null) {
+		if ($null -eq $ProcessActive) {
 			$a = 100
 			Write-Progress -Activity "Finish...waiting for next operation in 3 seconds" -PercentComplete $a -Status "Finish."
 			IF ($State -eq "Preparation") { Start-Sleep 3 }
@@ -942,17 +947,34 @@ Function Get-PendingReboot {
 	  dd.mm.yyy MS: script created
 	  27.05.2018 MS: Hotfix 40: new Script to get pending reboot state
 	  14.05.2019 JP: Improved Get-PendingReboot function, removed wmi commands
+	  21.11.2010 MS: HF 280 - Log Message for "pending reboot error"
 #>
 
 	Write-BISFFunctionName2Log -FunctionName ($MyInvocation.MyCommand | ForEach-Object { $_.Name })  #must be added at the begin to each function
 
-
-	If (Get-ChildItem "HKLM:\Software\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending" -EA Ignore) { return $true }
-	If (Get-Item "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired" -EA Ignore) { return $true }
-	If (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager" -Name PendingFileRenameOperations -EA Ignore) { return $true }
+	If (Get-ChildItem "HKLM:\Software\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending" -EA Ignore) {
+		Write-BISFlog -Msg "Component Based Servicing: $true" -ShowConsole -Color DarkCyan -SubMsg
+		return $true
+	}
+	If (Get-Item "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired" -EA Ignore) {
+		Write-BISFlog -Msg "Windows Update: $true" -ShowConsole -Color DarkCyan -SubMsg
+		return $true
+	}
+	If (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager" -Name PendingFileRenameOperations -EA Ignore) {
+		Write-BISFlog -Msg "Session Manager - PendingFileRenameOperations: $true" -ShowConsole -Color DarkCyan -SubMsg
+		return $true
+	}
 	try {
 		$RebootPending = Invoke-CimMethod -Namespace root\ccm\ClientSDK -ClassName CCM_ClientUtilities -Name DetermineIfRebootPending -ErrorAction SilentlyContinue | Select-Object "RebootPending"
+		If ($RebootPending -eq $true) {
+			Write-BISFlog -Msg "RebootPending: $RebootPending" -ShowConsole -Color DarkCyan -SubMsg
+		}
+
 		$IsHardRebootPending = Invoke-CimMethod -Namespace root\ccm\ClientSDK -ClassName CCM_ClientUtilities -Name DetermineIfRebootPending -ErrorAction SilentlyContinue | Select-Object "IsHardRebootPending"
+		If ($IsHardRebootPending -eq $true) {
+			Write-BISFlog -Msg "IsHardRebootPending: $IsHardRebootPending" -ShowConsole -Color DarkCyan -SubMsg
+		}
+
 		If (($RebootPending -eq $true) -or ($IsHardRebootPending -eq $true)) { return $true }
 	}
 	catch { }
@@ -1768,8 +1790,8 @@ function Get-DiskNameExtension {
 	Finally { $ErrorActionPreference = "Continue" }
 	write-BISFlog -Msg "vDisk Extension is $($ReturnValue)"
 	return $returnValue
-
 }
+
 
 function Test-Service {
 	<#
@@ -1791,6 +1813,7 @@ function Test-Service {
 		06.03.2017 MS: get FileVersion from ImagePath
 		28.02.2018 MS: Bugfix get Fileversion from Imagepath, without arguments of the service
 		20.10.2018 MS: Bugfix 74: The Version from the Service could not extracted
+		23.12.2020 MS: HF 304 - add switch RetrieveVersion
 	.LINK
 		https://eucweb.com
 #>
@@ -1802,7 +1825,11 @@ function Test-Service {
 
 		# specifies the Productname / Software
 		[parameter(Mandatory = $false)]
-		[ValidateNotNullOrEmpty()]$ProductName
+		[ValidateNotNullOrEmpty()]$ProductName,
+
+		# Retrieve ServiceVersion
+		[parameter(Mandatory = $false)]
+		[switch]$RetrieveVersion
 	)
 	Write-BISFFunctionName2Log -FunctionName ($MyInvocation.MyCommand | ForEach-Object { $_.Name })  #must be added at the begin to each function
 	IF (Get-Service $Servicename -ErrorAction SilentlyContinue) {
@@ -1815,7 +1842,7 @@ function Test-Service {
 			$SVCImagePath = $SVCImagePath -replace ('"', '')
 			$Global:glbSVCImagePath = "$SVCImagePath"
 			$SVCFileVersion = (Get-Item $($SVCImagePath) -ErrorAction SilentlyContinue).versioninfo.fileversion
-			IF (!($SVCFileVersion -eq $null)) {
+			IF (!([String]::IsNullOrEmpty($SVCFileVersion))) {
 				$ShowVersion = "(Version $SVCFileVersion)"
 				Write-BISFlog -Msg "Product $ProductName $ShowVersion installed" -ShowConsole -Color Cyan
 			}
@@ -1825,12 +1852,21 @@ function Test-Service {
 			}
 
 		}
-		return $true
+		if ($RetrieveVersion) {
+			return $true, $SVCFileVersion
+		} else {
+			return $true
+		}
+
 	}
 	ELSE {
 		write-BISFlog -Msg "Service $($ServiceName) does not exist"
 		IF ($ProductName) { write-BISFlog -Msg "Product $ProductName is NOT installed" }
-		return $false
+		if ($RetrieveVersion) {
+			return $false, 0
+		} else {
+			return $false
+		}
 	}
 
 }
@@ -2555,53 +2591,62 @@ function Test-AppLayeringSoftware {
 		21.10.2018 MS: Bugfix 62: BIS-F AppLayering - Layer Finalized is blocked with MCS - Booting Layered Image
 		02.01.2020 MS: Bugfix 164: Layer finalize is blocked with VDA 1912 LTSR and activated UPL
 		07.01.2020 MS: HF 176 - $Global:ImageSW request is set one Time only
-		24.05.2020 MS: HF 187 - VDA 1912 inside AppLayering Packaging VM wrong Layer back
+		01.06.2020 MS: HF 187 - VDA 1912 inside AppLayering Packaging VM wrong Layer back
+		15.06.2020 MS: HF 247 - DomainMember output - missing $
+		18.06.2020 MS: HF 251 - Wrong Citrix AppLayering Layer detected with UPL and on Server OS
+
 	.LINK
 		https://eucweb.com
-#>
+    #>
 	Write-BISFFunctionName2Log -FunctionName ($MyInvocation.MyCommand | ForEach-Object { $_.Name })  #must be added at the begin to each function
 	#default values
-	$Global:CTXAppLayeringSW = $false              # AppLayering is installed
+	$Global:CTXAppLayeringSW = $false            # AppLayering is installed
 	$Global:CTXAppLayeringOSLayer = $false       # OS Layer detected
 	$Global:CTXAppLayeringPFLayer = $false       # Platform Layer detected
 	$GLobal:CTXAppLayerName = $Null
-	$svc = Test-BISFService -ServiceName "UniService" -ProductName "Citrix AppLayering"
+	$svcName = "UniService"
+	$ProductName = "Citrix AppLayering"
+	$svc = Test-BISFService -ServiceName $svcName -ProductName $ProductName
 	IF ($svc -eq $true) {
 		$Global:CTXAppLayeringSW = $true
 		$Global:ImageSW = $true
-		$Global:CTXAppLayeringRunMode = (Get-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Services\unifltr).RunMode
-		$DiskMode = Get-BISFDiskMode
-		Write-BISFLog -Msg "DiskMode is set to $DiskMode"
-		$svcSatus = Test-BISFServiceState -ServiceName "UniService" -Status "Running"
 		$OverrideRunMode = $false
-		IF (($DiskMode -eq "ReadWriteAppLayering") -or ($svcSatus -ne "Running")) {$OverrideRunMode = $true}
-		IF (($UPL -eq $true ) -and ($DiskMode -eq "VDAPrivateAppLayering")) {$OverrideRunMode = $true}
+		Write-BISFLog -Msg "OverrideRunMode: $OverrideRunMode"
+		$Global:CTXAppLayeringRunMode = (Get-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Services\unifltr).RunMode
+		Write-BISFLog -Msg "$ProductName RunMode: $CTXAppLayeringRunMode"
+		$DiskMode = Get-BISFDiskMode
+		$svcSatus = Test-BISFServiceState -ServiceName $svcName -Status "Running"
+		Write-BISFLog -Msg "ServiceStatus Citrix AppLayering: $svcSatus"
+		$DomainMember = (Get-WmiObject -Class Win32_ComputerSystem).PartOfDomain
+		Write-BISFLog -Msg "DomainMember: $DomainMember"
+		Write-BISFLog -Msg "UPL: $UPL"
+
+		IF ($CTXAppLayeringRunMode -ne 1) {
+			IF (($svcSatus -ne "Running") -or ($UPL -eq $true)) {$OverrideRunMode = $true; $OverrideCode = "UniService/UPL";Write-BISFLog -Msg "OverrideRunMode: $OverrideRunMode"}
+		}
+
 		IF ($OverrideRunMode -eq $true) {
 			$CTXAppLayeringRunModeNew = 1
-			Write-BISFLog "The original App Layering RunMode ist set to $CTXAppLayeringRunMode, based on the DiskMode $DiskMode the RunMode is internally changed to $CTXAppLayeringRunModeNew to get the right layer"
+			Write-BISFLog "[Code $OverrideCode] The original $ProductName RunMode ist set to $CTXAppLayeringRunMode, based on the detection of the current environment the RunMode is internaly changed to $CTXAppLayeringRunModeNew to get the right layer"
 			$CTXAppLayeringRunMode = $CTXAppLayeringRunModeNew
 		}
 		Switch ($CTXAppLayeringRunMode) {
 			1 {
 				$GLobal:CTXAppLayerName = "No-ELM"
 			}
-
 			3 {
 				$Global:CTXAppLayeringOSLayer = $true
 				$GLobal:CTXAppLayerName = "OS-Layer"
 			}
-
 			4 {
 				$Global:CTXAppLayeringPFLayer = $true
 				$Global:CTXAppLayerName = "Platform/Application Layer"
 				IF ($DiskMode -eq "VDAPrivateAppLayering") { $Global:CTXAppLayeringPFLayer = $true; $Global:CTXAppLayerName = "Platform-Layer" }
 				IF ($DiskMode -eq "UnmanagedAppLayering") { $Global:CTXAppLayeringAppLayer = $true; $Global:CTXAppLayerName = "Application-Layer" }
-
 			}
-			Default { Write-BISFLog -Msg "Not defined - AppLayering RunMode is set to $CTXAppLayeringRunMode" -ShowConsole -Type W }
+			Default { Write-BISFLog -Msg "Not defined - $ProductName RunMode is set to $CTXAppLayeringRunMode" -ShowConsole -Type W }
 		}
-		Write-BISFLog -Msg "Citrix AppLayering - $CTXAppLayerName detected" -ShowConsole -SubMsg -Color DarkCyan
-
+		Write-BISFLog -Msg "$ProductName - $CTXAppLayerName detected" -ShowConsole -SubMsg -Color DarkCyan
 	}
 	return $svc
 
@@ -2632,6 +2677,8 @@ function Use-PVSConfig {
 		14.08.2019 MS: ENH 108 - set NTFS Rights for spool directory
 		25.08.2019 MS: ENH 128 - Disable redirection if WriteCacheDisk is set to NONE
 		08.10.2019 MS: ENH 145 - ADMX: Disable Redirection for Citrix PVS Target
+		18.06.2020 MS: HF 249 - WEMCache folder will be reconfigured if UPL is installed
+		22.12.2020 JS: HF 302 - WriteCache disk access validated before redirecting
 	.LINK
 		https://eucweb.com
 #>
@@ -2640,19 +2687,31 @@ function Use-PVSConfig {
 		$Global:Redirection = $false
 		Write-BISFLog -Msg "Checking if redirection of Files to PVS Write Cache Disk is possible" -ShowConsole -Color Cyan
 		#enable redirection
-		IF (($CTXAppLayeringSW -eq $false) -and ($State -eq "Preparation")) { $Global:Redirection = $true; $Global:RedirectionCode = "PVS-NoAppLay-Prep" ; Write-BISFLog -Msg "enable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
-		IF (($CTXAppLayeringSW -eq $false) -and ($State -eq "Personalization") -and ($computer -ne $LIC_BISF_RefSrv_HostName)) { $Global:Redirection = $true; $Global:RedirectionCode = "PVS-NoAppLay-Pers-NoBI" ; Write-BISFLog -Msg "enable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
-		IF (($CTXAppLayeringSW -eq $false) -and ($State -eq "Personalization") -and ($computer -eq $LIC_BISF_RefSrv_HostName)) { $Global:Redirection = $true; $Global:RedirectionCode = "PVS-NoAppLay-Pers-BI" ; Write-BISFLog -Msg "enable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
-		IF (($CTXAppLayeringSW -eq $true) -and ($State -eq "Personalization") -and ($computer -ne $LIC_BISF_RefSrv_HostName)) { $Global:Redirection = $true; $Global:RedirectionCode = "PVS-AppLay-Pers-NoBI" ; Write-BISFLog -Msg "enable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+		IF ($UPL -eq $true) {
+			IF ($State -eq "Preparation") { $Global:Redirection = $true; $Global:RedirectionCode = "PVS-UPL-Prep" ; Write-BISFLog -Msg "enable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+			IF (($State -eq "Personalization") -and ($computer -ne $LIC_BISF_RefSrv_HostName)) { $Global:Redirection = $true; $Global:RedirectionCode = "PVS-UPL-Pers-NoBI" ; Write-BISFLog -Msg "enable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+			IF (($State -eq "Personalization") -and ($computer -eq $LIC_BISF_RefSrv_HostName)) { $Global:Redirection = $true; $Global:RedirectionCode = "PVS-UPL-Pers-BI" ; Write-BISFLog -Msg "enable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+			IF (($State -eq "Personalization") -and ($computer -ne $LIC_BISF_RefSrv_HostName)) { $Global:Redirection = $true; $Global:RedirectionCode = "PVS-UPL-Pers-NoBI" ; Write-BISFLog -Msg "enable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+		} ELSE {
+			IF (($CTXAppLayeringSW -eq $false) -and ($State -eq "Preparation")) { $Global:Redirection = $true; $Global:RedirectionCode = "PVS-NoAppLay-Prep" ; Write-BISFLog -Msg "enable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+			IF (($CTXAppLayeringSW -eq $false) -and ($State -eq "Personalization") -and ($computer -ne $LIC_BISF_RefSrv_HostName)) { $Global:Redirection = $true; $Global:RedirectionCode = "PVS-NoAppLay-Pers-NoBI" ; Write-BISFLog -Msg "enable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+			IF (($CTXAppLayeringSW -eq $false) -and ($State -eq "Personalization") -and ($computer -eq $LIC_BISF_RefSrv_HostName)) { $Global:Redirection = $true; $Global:RedirectionCode = "PVS-NoAppLay-Pers-BI" ; Write-BISFLog -Msg "enable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+			IF (($CTXAppLayeringSW -eq $true) -and ($State -eq "Personalization") -and ($computer -ne $LIC_BISF_RefSrv_HostName)) { $Global:Redirection = $true; $Global:RedirectionCode = "PVS-AppLay-Pers-NoBI" ; Write-BISFLog -Msg "enable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+		}
+
 
 		#disable redirection
-		IF (($CTXAppLayeringSW -eq $true) -and ($State -eq "Preparation")) { $Global:Redirection = $false; $Global:RedirectionCode = "PVS-AppLay-Prep" ; Write-BISFLog -Msg "disable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
-		IF (($CTXAppLayeringSW -eq $true) -and ($State -eq "Preparation") -and ($computer -eq $LIC_BISF_RefSrv_HostName)) { $Global:Redirection = $false; $Global:RedirectionCode = "PVS-AppLay-Prep-BI" ; Write-BISFLog -Msg "disable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
-		IF (($CTXAppLayeringSW -eq $true) -and ($State -eq "Personalization") -and ($computer -eq $LIC_BISF_RefSrv_HostName)) { $Global:Redirection = $false; $Global:RedirectionCode = "PVS-AppLay-Pers-BI" ; Write-BISFLog -Msg "disable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+		IF ($UPL -eq $false) {
+			IF (($CTXAppLayeringSW -eq $true) -and ($State -eq "Preparation")) { $Global:Redirection = $false; $Global:RedirectionCode = "PVS-AppLay-Prep" ; Write-BISFLog -Msg "disable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+			IF (($CTXAppLayeringSW -eq $true) -and ($State -eq "Preparation") -and ($computer -eq $LIC_BISF_RefSrv_HostName)) { $Global:Redirection = $false; $Global:RedirectionCode = "PVS-AppLay-Prep-BI" ; Write-BISFLog -Msg "disable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+			IF (($CTXAppLayeringSW -eq $true) -and ($State -eq "Personalization") -and ($computer -eq $LIC_BISF_RefSrv_HostName)) { $Global:Redirection = $false; $Global:RedirectionCode = "PVS-AppLay-Pers-BI" ; Write-BISFLog -Msg "disable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+		}
 
 		IF ($LIC_BISF_CLI_WCD -eq "NONE") {$Global:Redirection = $false; $Global:RedirectionCode = "PVS-Global-No-WCD" ; Write-BISFLog -Msg "disable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
 
 		IF ($LIC_BISF_CLI_PVSDisableRedirection -eq 1) { $Global:Redirection = $false; $Global:RedirectionCode = "PVS-Global-Disabled-Redirection" ; Write-BISFLog -Msg "disable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+
+		IF ((Test-BISFAccessValidated -Folder "$PVSDiskDrive\") -eq $False) { $Global:Redirection = $false; $Global:RedirectionCode = "WCD-To-Be-Formatted" ; Write-BISFLog -Msg "disable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
 
 		IF ($Redirection -eq $true) {
 			Write-BISFLog -Msg "Redirection is enabled with Code $RedirectionCode, configuring it now" -ShowConsole -SubMsg -Color DarkCyan
@@ -2715,6 +2774,8 @@ function Use-MCSConfig {
 		History:
 		  03.10.2019 MS: EHN 126 - function created (coopy from Use-PVSConfig function and modifed for MCS)
 		  03.01.2020 MS: HF 169 - Disable redirection if MCS GPO is disabled
+		  18.06.2020 MS: HF 249 - WEMCache folder will be reconfigured if UPL is installed
+		  23.12.2020 MS: HF 302 - WriteCache disk access validated before redirecting
 
 	.LINK
 		https://eucweb.com
@@ -2725,21 +2786,34 @@ function Use-MCSConfig {
 		Write-BISFLog -Msg "Check if redirection of Files to MCSIO CacheDisk is possible" -ShowConsole -Color Cyan
 		#enable redirection
 		IF ($LIC_BISF_CLI_MCSCfg -eq "YES") {
-			IF (($CTXAppLayeringSW -eq $false) -and ($State -eq "Preparation")) { $Global:Redirection = $true; $Global:RedirectionCode = "MCS-NoAppLay-Prep" ; Write-BISFLog -Msg "enable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
-			IF (($CTXAppLayeringSW -eq $false) -and ($State -eq "Personalization") -and ($computer -ne $LIC_BISF_RefSrv_HostName)) { $Global:Redirection = $true; $Global:RedirectionCode = "MCS-NoAppLay-Pers-NoBI" ; Write-BISFLog -Msg "enable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
-			IF (($CTXAppLayeringSW -eq $false) -and ($State -eq "Personalization") -and ($computer -eq $LIC_BISF_RefSrv_HostName)) { $Global:Redirection = $true; $Global:RedirectionCode = "MCS-NoAppLay-Pers-BI" ; Write-BISFLog -Msg "enable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
-			IF (($CTXAppLayeringSW -eq $true) -and ($State -eq "Personalization") -and ($computer -ne $LIC_BISF_RefSrv_HostName)) { $Global:Redirection = $true; $Global:RedirectionCode = "MCS-AppLay-Pers-NoBI" ; Write-BISFLog -Msg "enable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+			IF ($UPL -eq $true) {
+				IF ($State -eq "Preparation") { $Global:Redirection = $true; $Global:RedirectionCode = "MCS-UPL-Prep" ; Write-BISFLog -Msg "enable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+				IF (($State -eq "Personalization") -and ($computer -ne $LIC_BISF_RefSrv_HostName)) { $Global:Redirection = $true; $Global:RedirectionCode = "MCS-UPL-Pers-NoBI" ; Write-BISFLog -Msg "enable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+				IF (($State -eq "Personalization") -and ($computer -eq $LIC_BISF_RefSrv_HostName)) { $Global:Redirection = $true; $Global:RedirectionCode = "MCS-UPL-Pers-BI" ; Write-BISFLog -Msg "enable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+				IF (($State -eq "Personalization") -and ($computer -ne $LIC_BISF_RefSrv_HostName)) { $Global:Redirection = $true; $Global:RedirectionCode = "MCS-UPL-Pers-NoBI" ; Write-BISFLog -Msg "enable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+			} ELSE {
+				IF (($CTXAppLayeringSW -eq $false) -and ($State -eq "Preparation")) { $Global:Redirection = $true; $Global:RedirectionCode = "MCS-NoAppLay-Prep" ; Write-BISFLog -Msg "enable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+				IF (($CTXAppLayeringSW -eq $false) -and ($State -eq "Personalization") -and ($computer -ne $LIC_BISF_RefSrv_HostName)) { $Global:Redirection = $true; $Global:RedirectionCode = "MCS-NoAppLay-Pers-NoBI" ; Write-BISFLog -Msg "enable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+				IF (($CTXAppLayeringSW -eq $false) -and ($State -eq "Personalization") -and ($computer -eq $LIC_BISF_RefSrv_HostName)) { $Global:Redirection = $true; $Global:RedirectionCode = "MCS-NoAppLay-Pers-BI" ; Write-BISFLog -Msg "enable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+				IF (($CTXAppLayeringSW -eq $true) -and ($State -eq "Personalization") -and ($computer -ne $LIC_BISF_RefSrv_HostName)) { $Global:Redirection = $true; $Global:RedirectionCode = "MCS-AppLay-Pers-NoBI" ; Write-BISFLog -Msg "enable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+
+			}
 		}
 
 		#disable redirection
-		IF (($CTXAppLayeringSW -eq $true) -and ($State -eq "Preparation")) { $Global:Redirection = $false; $Global:RedirectionCode = "MCS-AppLay-Prep" ; Write-BISFLog -Msg "disable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
-		IF (($CTXAppLayeringSW -eq $true) -and ($State -eq "Preparation") -and ($computer -eq $LIC_BISF_RefSrv_HostName)) { $Global:Redirection = $false; $Global:RedirectionCode = "MCS-AppLay-Prep-BI" ; Write-BISFLog -Msg "disable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
-		IF (($CTXAppLayeringSW -eq $true) -and ($State -eq "Personalization") -and ($computer -eq $LIC_BISF_RefSrv_HostName)) { $Global:Redirection = $false; $Global:RedirectionCode = "MCS-AppLay-Pers-BI" ; Write-BISFLog -Msg "disable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+		IF ($UPL -eq $false) {
+			IF (($CTXAppLayeringSW -eq $true) -and ($State -eq "Preparation")) { $Global:Redirection = $false; $Global:RedirectionCode = "MCS-AppLay-Prep" ; Write-BISFLog -Msg "disable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+			IF (($CTXAppLayeringSW -eq $true) -and ($State -eq "Preparation") -and ($computer -eq $LIC_BISF_RefSrv_HostName)) { $Global:Redirection = $false; $Global:RedirectionCode = "MCS-AppLay-Prep-BI" ; Write-BISFLog -Msg "disable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+			IF (($CTXAppLayeringSW -eq $true) -and ($State -eq "Personalization") -and ($computer -eq $LIC_BISF_RefSrv_HostName)) { $Global:Redirection = $false; $Global:RedirectionCode = "MCS-AppLay-Pers-BI" ; Write-BISFLog -Msg "disable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+		}
 
 		IF ($LIC_BISF_CLI_MCSCfg -ne "YES") {$Global:Redirection = $false; $Global:RedirectionCode = "MCS-Global-Disabled" ; Write-BISFLog -Msg "disable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
 		IF ($LIC_BISF_CLI_MCSIODriveLetter -eq "NONE") {$Global:Redirection = $false; $Global:RedirectionCode = "MCS-Global-No-WCD" ; Write-BISFLog -Msg "disable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
 
 		IF ($LIC_BISF_CLI_MCSIODisableRedirection -eq 1) {$Global:Redirection = $false; $Global:RedirectionCode = "MCS-Global-Disabled-Redirection" ; Write-BISFLog -Msg "disable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+
+		IF ((Test-BISFAccessValidated -Folder "$PVSDiskDrive\") -eq $False) { $Global:Redirection = $false; $Global:RedirectionCode = "WCD-To-Be-Formatted" ; Write-BISFLog -Msg "disable redirection - Code $RedirectionCode" -ShowConsole -SubMsg -Color DarkCyan }
+
 
 		IF ($Redirection -eq $true) {
 			Write-BISFLog -Msg "Redirection is enabled with Code $RedirectionCode, configuring it now" -ShowConsole -SubMsg -Color DarkCyan
@@ -2795,13 +2869,19 @@ function Move-EvtLogs {
 		11.11.2017 MS: Bugfix, show the right Eventlog during move to the WCD
 		14.08.2019 MS: ENH 108 - set NTFS Rights for Eventlog directory
 		03.10.2019 MS: EHN 126 - added MCSIO redirection
-		27.12.2019 MS/MN: HF 161 - Quotation marks are different
+        27.12.2019 MS/MN: HF 161 - Quotation marks are different
+		16.12.2020 MW: HF 42 - New Move Event Log Function
+		24.12.2020 MS: HF 42 - fixing 1 KB evtx and etl files in the BISF installationfolder
+		04.01.2021 MS: HF 42 - rename variable $logfile to $newLogfile, $logfile is used for the BIS-F Log
+		08.01.2021 MS: HF 42 - coding issue at line '$newLogfile = Split-Path $Logfilepath -Leaf | out-null' -> remove '| out-null' to clear the variable itself
 
 	.FUNCTIONALITY
 		Enable all Eventlog and move Eventlogs to the PVS WriteCacheDisk if Redirection is enabled function Use-BISFPVSConfig
 			or
 		Enable all Eventlog and move Eventlogs to the MCSIO CacheDisk if Redirection is enabled function Use-BISFMCSConfig
 
+	.Link
+		https://gallery.technet.microsoft.com/scriptcenter/Change-the-path-of-the-f86d2427
 
 	#>
 	Write-BISFFunctionName2Log -FunctionName ($MyInvocation.MyCommand | ForEach-Object { $_.Name })  #must be added at the begin to each function
@@ -2813,126 +2893,40 @@ function Move-EvtLogs {
 		Write-BISFLog -Msg "Create Eventlog directory $LIC_BISF_EvtPath"
 		New-Item -Path $LIC_BISF_EvtPath -ItemType Directory -Force
 	}
-	$appvlogs = Get-WinEvent -ListLog "*" -force -ErrorAction SilentlyContinue | Where-Object { $_.IsEnabled -eq $false }
+	[reflection.assembly]::loadwithpartialname("System.Diagnostics.Eventing.Reader")
+	$EventLogSessions = New-Object System.Diagnostics.Eventing.Reader.EventLogSession
 
-	foreach ($logitem in $appvlogs) {
-		$x = $logitem.LogName
-		Write-BISFLog -Msg "Eventlog enabled: $x"
-		#    $logitem.IsEnabled = $true
-		$LogfilePath = "$LIC_BISF_EvtPath\" + $logitem.logName + ".evtx"
-		$Logfilepath = $LogFilePath.Replace("/", "")
+	foreach ($LogName in $EventLogSessions.GetLogNames()) {
+		Write-BISFLog -Msg "Processing EventLog: $LogName" -ShowConsole -SubMsg -Color DarkCyan
+        $Eventlogconfig = New-Object System.Diagnostics.Eventing.Reader.EventLogConfiguration -ArgumentList $LogName,$EventLogSessions
+        $Logfilepath = $Eventlogconfig.LogFilePath
+		Write-BISFLog -Msg "Current Path: $Logfilepath" -ShowConsole -SubMsg -Color DarkCyan
+		$newLogfile = Split-Path $Logfilepath -Leaf
+        $NewLogFilePath = "$LIC_BISF_EvtPath\$newLogfile"
 
-		Write-BISFLog -Msg "Path:`t`t $LogfilePath" -ShowConsole -SubMsg -Color DarkCyan
-		$logitem.LogFilePath = $Logfilepath
-		Try {
-			$logitem.SaveChanges()
+		if ($Logfilepath -eq $NewLogFilePath) {
+			Write-BISFLog -Msg "New and Current Path are equal - skipping configuration change" -ShowConsole -SubMsg -Color Green
+		} else {
+			Write-BISFLog -Msg "New Path: $NewLogFilePath" -ShowConsole -SubMsg -Color DarkCyan
+			if (($Eventlogconfig.LogType -eq "Debug" -or $Eventlogconfig.LogType -eq " Analytical") -and $Eventlogconfig.IsEnabled) {
+				$Eventlogconfig.IsEnabled = $false
+				$Eventlogconfig.SaveChanges()
+
+				$Eventlogconfig.LogFilePath = $NewLogFilePath
+				$Eventlogconfig.SaveChanges()
+
+				$Eventlogconfig.IsEnabled = $true
+				$Eventlogconfig.SaveChanges()
+			} else {
+				$Eventlogconfig.LogFilePath = $NewLogFilePath
+				$Eventlogconfig.SaveChanges()
+			}
 		}
-		Catch [System.Management.Automation.MethodInvocationException] {
-			#$Error | Get-Member
-			#$Error.Data
-			#$Error.ErrorRecord
-			#$Error.Errors
-			$x = $_.Exception.Message
-			Write-BISFLog -Msg "Error:`t`t $x" -Type W
+    }
 
-			#Exit
-		}
-		Catch {
-			$Error[0].Exception.GetType().fullname
-		}
-		# Write-BISFLog -Msg "`n`n"
-	}
-
-
-	$appvlogs = Get-WinEvent -ListLog "*" -force -ErrorAction SilentlyContinue | Where-Object { $_.IsEnabled -eq $true }
-
-	foreach ($logitem in $appvlogs) {
-		$x = $logitem.LogName
-		Write-BISFLog -Msg "Log enabled: $x"
-		#     $logitem.IsEnabled = $true
-		$LogfilePath = "$LIC_BISF_EvtPath\" + $logitem.logName + ".evtx"
-		$Logfilepath = $LogFilePath.Replace("/", "")
-
-		Write-BISFLog -Msg "Path:`t`t $LogfilePath" -ShowConsole -SubMsg -Color DarkCyan
-		$logitem.LogFilePath = $Logfilepath
-		Try {
-			$logitem.SaveChanges()
-		}
-		Catch [System.Management.Automation.MethodInvocationException] {
-			#$Error | Get-Member
-			#$Error.Data
-			#$Error.ErrorRecord
-			#$Error.Errors
-			$x = $_.Exception.Message
-			Write-BISFLog -Msg "Error:`t`t $x" -Type W
-
-			#Exit
-		}
-		Catch {
-			$Error[0].Exception.GetType().fullname
-		}
-		#Write-BISFLog -Msg "`n`n"
-	}
-
-	$appvlogs = Get-WinEvent -ListLog "Microsoft-Windows-TerminalServices-SessionBroker-*" -force -ErrorAction SilentlyContinue | Where-Object { $_.IsEnabled -eq $true }
-
-	foreach ($logitem in $appvlogs) {
-		$x = $logitem.LogName
-		Write-BISFLog -Msg "Log enabled: $x"
-		$logitem.IsEnabled = $false
-		$LogfilePath = "$LIC_BISF_EvtPath\" + $logitem.logName + ".evtx"
-		$Logfilepath = $LogFilePath.Replace("/", "")
-
-		Write-BISFLog -Msg "Path:`t`t $LogfilePath" -ShowConsole -SubMsg -Color DarkCyan
-		$logitem.LogFilePath = $Logfilepath
-		Try {
-			$logitem.SaveChanges()
-		}
-		Catch [System.Management.Automation.MethodInvocationException] {
-			#$Error | Get-Member
-			#$Error.Data
-			#$Error.ErrorRecord
-			#$Error.Errors
-			$x = $_.Exception.Message
-			Write-BISFLog -Msg "Error:`t`t $x" -Type W
-
-			#Exit
-		}
-		Catch {
-			$Error[0].Exception.GetType().fullname
-		}
-		#Write-BISFLog -Msg "`n`n"
-	}
-	$appvlogs = Get-WinEvent -ListLog "Microsoft-Windows-TerminalServices-SessionBroker-*" -force -ErrorAction SilentlyContinue | Where-Object { $_.IsEnabled -eq $false }
-
-	foreach ($logitem in $appvlogs) {
-		$x = $logitem.LogName
-		Write-BISFLog -Msg "Log enabled: $x"
-		$LogfilePath = "$LIC_BISF_EvtPath\" + $logitem.logName + ".evtx"
-		$Logfilepath = $LogFilePath.Replace("/", "")
-
-		Write-BISFLog -Msg "Path:`t`t $LogfilePath" -ShowConsole -SubMsg -Color DarkCyan
-		$logitem.LogFilePath = $Logfilepath
-		Try {
-			$logitem.SaveChanges()
-		}
-		Catch [System.Management.Automation.MethodInvocationException] {
-			#$Error | Get-Member
-			#$Error.Data
-			#$Error.ErrorRecord
-			#$Error.Errors
-			$x = $_.Exception.Message
-			Write-BISFLog -Msg "Error:`t`t $x" -Type W
-
-			#Exit
-		}
-		Catch {
-			$Error[0].Exception.GetType().fullname
-		}
-		#Write-BISFLog -Msg "`n`n"
-	}
 	Set-BISFACLrights -path $LIC_BISF_EvtPath
 }
+
 
 function Get-BootMode {
 	<#
@@ -3812,24 +3806,22 @@ function Test-WVDSoftware {
 		History:
 		  25.08.2019 MS: function created
 		  07.01.2020 MS: HF 176 - $Global:ImageSW request is set one Time only
+		  28.06.2020 MS: HF 257 - Azure WVD not detected
+
 
 	.LINK
 		https://eucweb.com
 #>
 	Write-BISFFunctionName2Log -FunctionName ($MyInvocation.MyCommand | ForEach-Object { $_.Name })  #must be added at the begin to each function
-	$OSName = (Get-WMIObject Win32_OperatingSystem).Name
 	$product = "Microsoft Windows 10 Enterprise for Virtual Desktops"
 	IF ($OSName -eq $product) { $WVD = $true } ELSE { $WVD = $false }
 	IF ($WVD -eq $true) {
-		IF ($WVD -eq $true) {
-			Write-BISFlog -Msg "Product $product installed" -ShowConsole -Color Cyan
-			$Global:ImageSW = $true
-		} ELSE {
+		Write-BISFlog -Msg "Product $product installed" -ShowConsole -Color Cyan
+		$Global:ImageSW = $true
+	} ELSE {
 			Write-BISFlog -Msg "Product $product NOT installed"
-		}
 	}
 	return $WVD
-
 }
 
 function Set-LAPSExpirationTime{
@@ -4207,9 +4199,9 @@ Function Get-CacheDiskID {
 	use get-help <functionname> -full to see full help
 
 	.EXAMPLE
-		$DiskID = Get-BISFCacheDiskID
-		$BootDiskID = $DiskID[0]
-		$CachDiskID = $DiskID[1]
+		$DiskIdentifier = Get-BISFCacheDiskID
+		$BootDiskID = DiskIdentifier[0]
+		$CachDiskID = DiskIdentifier[1]
 
 	.NOTES
 		Author: Matthias Schlimm
@@ -4217,7 +4209,8 @@ Function Get-CacheDiskID {
 		History:
 		  05.10.2019 MS: function created
 		  05.10.2019 MS: HF 22 - Endless Reboot with VMware Paravirtual SCSI disk need to get the DiskID
-          10.10.2019 MS: fixing errorhandling
+		  10.10.2019 MS: fixing errorhandling
+		  08.01.2021 MS: HF 302 - using $DiskIdentifier instead DiskID, DiskID is for another Global variable
 
 	.LINK
 		https://eucweb.com
@@ -4440,4 +4433,170 @@ function Get-PVSWriteCacheType {
 	}
 	Write-BISFLog -Msg "PVS WriteCacheType is set to $WriteCacheType - $WriteCacheTypeTxt"
 	return $WriteCacheType
+}
+
+function Stop-Processes {
+	<#
+	.SYNOPSIS
+		Stop a Process gracefully
+
+	.DESCRIPTION
+		gracefulle stop a process, if the process is not stopped in the defined timout,
+		the process is killed
+		use get-help <functionname> -full to see full help
+
+	.EXAMPLE
+		Stop-BISFProcesses -processName notepad
+
+	.NOTES
+		Author: Matthias Schlimm
+
+		History:
+		  03.06.2020 MS: function created
+
+	.LINK
+		https://eucweb.com
+#>
+
+    param(
+        [parameter(Mandatory=$true)] $processName,
+                                     $timeout = 5
+    )
+	Write-BISFLog -Msg "Check Process $processName" -Color Cyan -ShowConsole
+	$processList = Get-Process $processName -ErrorAction SilentlyContinue
+    if ($processList) {
+        # Try gracefully first
+        Write-BISFLog -Msg "Gracefull stop the Process $processName" -Color DarkCyan -ShowConsole -SubMsg
+        $processList.CloseMainWindow() | Out-Null
+
+        Write-BISFLog -Msg "Wait until all processes have terminated or until timeout" -Color DarkCyan -ShowConsole -SubMsg
+        for ($i = 0 ; $i -le $timeout; $i ++){
+            $AllHaveExited = $True
+            $processList | % {
+                $process = $_
+                If (!$process.HasExited){
+                    $AllHaveExited = $False
+                }
+            }
+            If ($AllHaveExited){
+                Return
+            }
+            sleep 1
+        }
+        Write-BISFLog -Msg "Process $processName can't gracefull stopped, killing now" -Type W -ShowConsole -SubMsg
+        $processList | Stop-Process -Force
+    } ELSE {
+        Write-BISFLog -Msg "Process $processName is not running, nothing to do" -Color DarkCyan -ShowConsole -SubMsg
+    }
+}
+
+function Get-DSRegState {
+	<#
+	.SYNOPSIS
+	Getting value back of an entered Key
+
+	.DESCRIPTION
+	dsregcmd / status will show you all available values.
+	For automation, you often need only the value
+	of one single key
+
+			+----------------------------------------------------------------------+
+		| Device State                                                         |
+		+----------------------------------------------------------------------+
+
+				AzureAdJoined : NO
+			EnterpriseJoined : NO
+				DomainJoined : YES
+				DomainName : EUClab
+
+		+----------------------------------------------------------------------+
+		| User State                                                           |
+		+----------------------------------------------------------------------+
+
+					NgcSet : NO
+			WorkplaceJoined : NO
+				WamDefaultSet : NO
+				AzureAdPrt : NO
+
+		+----------------------------------------------------------------------+
+		| Ngc Prerequisite Check                                               |
+		+----------------------------------------------------------------------+
+
+				IsUserAzureAD : NO
+				PolicyEnabled : NO
+			DeviceEligible : YES
+		SessionIsNotRemote : NO
+			X509CertRequired : NO
+				PreReqResult : WillNotProvision
+
+
+	.PARAMETER Key
+	The value of the entered key is sending back
+
+	.EXAMPLE
+	$DSRegValue = Get-BISFDSRegState -Key "AzureADjoined"
+
+	.NOTES
+	Author: Matthias Schlimm
+
+		History:
+		  21.11.2020 MS: HF 285 - function created
+	#>
+	param(
+		[parameter(Mandatory=$true)]
+		[string]$Key
+    )
+
+	Write-BISFFunctionName2Log -FunctionName ($MyInvocation.MyCommand | ForEach-Object { $_.Name })  #must be added at the begin to each function
+
+	Write-BISFlog -Msg "Checking DSRegcmd State" -ShowConsole -Color Cyan
+	$valuedata = ((dsregcmd /status | select-string -pattern $Key) -split(":") | select-object -last 1).trim()
+	Write-BISFlog -Msg "$Key : $valuedata" -ShowConsole -Color DarkCyan -SubMsg
+	return $valuedata
+}
+
+Function Test-AccessValidated {
+	<#
+	.SYNOPSIS
+		Validate access to the WriteCache disk
+	.DESCRIPTION
+	  	Does a basic test to validate access to the WriteCache disk
+	.EXAMPLE
+		IsAccessAllowed = Test-BISFAccessValidated -Folder "$PVSDiskDrive\"
+	.EXAMPLE
+		IF ((Test-BISFAccessValidated -Folder "$PVSDiskDrive\") -eq $False) { #code for $false value } else { #code for $true value }
+	.NOTES
+		Author: Jeremy Saunders
+	  	Company: jhouseconsulting.com
+
+		History:
+	  	22.12.2020 JS: HD 302 - function created
+
+	.LINK
+		https://www.jhouseconsulting.com
+	#>
+	param(
+		[string]$Folder
+	)
+	Write-BISFFunctionName2Log -FunctionName ($MyInvocation.MyCommand | ForEach-Object { $_.Name })  #must be added at the begin to each function
+	If (TEST-PATH $Folder) {
+		Write-BISFLog -Msg "Testing access to the WriteCache disk ($Folder)" -ShowConsole -SubMsg -Color DarkCyan
+		Get-ChildItem -path $Folder -EA SilentlyContinue -ErrorVariable ErrVar is
+		# The -ErrorVariable common parameter creates an ArrayList. This variable always initialized,
+		# which means it will never be $null. The proper way to test if an ArrayList is empty or not
+		# is to use the Count property. It should be empty or equal to 0 if there are no errors.
+		If ($ErrVar.count -eq 0) {
+			Write-BISFLog -Msg "Access to the WriteCache disk is good" -ShowConsole -SubMsg -Color DarkCyan
+			$return = $True
+		}
+		Else {
+			Write-BISFLog -Msg "Access to WriteCache disk is denied" -ShowConsole -SubMsg -Color DarkCyan
+			$return = $False
+		}
+	}
+ Else {
+		Write-BISFLog -Msg "The WriteCache disk ($Folder) does not exist" -ShowConsole -SubMsg -Color DarkCyan
+		$return = $False
+	}
+	return $return
 }

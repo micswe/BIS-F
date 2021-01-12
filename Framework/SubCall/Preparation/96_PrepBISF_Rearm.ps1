@@ -44,6 +44,10 @@ param(
 		03.10.2019 MS: ENH 84 - Azure Activation for all Office 365 users
 		07.01.2020 MS: HF 174 - Office detection general change
 		18.02.2020 JK: Fixed Log output spelling
+		01.08.2020 MS: HF 269 - Office detection takes too long, using reg instead of WMI
+		01.08.2020 MS: HF 265 - Office 2010 rearm is not performed
+		02.08.2020 MS: HF 270 - PersBISF_Start.ps1 Script Causing all installed Applications to Reconfigure
+
 
 	.LINK
 		https://eucweb.com
@@ -75,32 +79,47 @@ Begin {
 	$RearmREG_name5 = "LIC_BISF_RearmOF_user"
 	$RearmREG_name6 = "LIC_BISF_RearmOF_date"
 
-	$OfficeInstallations = Get-WmiObject win32_product | where {$_.Name -like "Microsoft Office Professional Plus*" -or $_.Name -Like "Microsoft Office Standard*" -or $_.Name -like "*Click-to-Run Licensing Component*"}
+	$OfficeProducts = @("Microsoft Office Professional Plus","Microsoft Office Standard","Click-to-Run Licensing Component")
 	[array]$OfficeInstallRoot = $null
+	[array]$OSPPREARMInstallRoot = $null
 	$OSPPREARM = $null
-	ForEach ($Office in $OfficeInstallations)
-	{
-		$OFName = $Office.Name
-		$OFVersion = $Office.Version						#Version : 16.0.4266.1001
-		$OFVersionShort = $OFVersion.substring(0,4)  	#Version : 16.0
-		IF ($OFName -like "*Click-to-Run*") { $O365 = $true } ELSE { $O365 = $false}
-		Write-BISFLog -Msg "$OFName - $OFVersion installed" -ShowConsole -Color Cyan
-		IF ($O365 -eq $false) {
-			If ([Environment]::Is64BitOperatingSystem) {
-				$OfficeInstallRoot += (Get-ItemProperty -Path Registry::HKLM\SOFTWARE\Wow6432Node\Microsoft\Office\$($OFVersionShort)\Common\InstallRoot -Name Path -ErrorAction SilentlyContinue).Path
+	ForEach ($OfficeProduct in $OfficeProducts) {
+        $Office = (Get-BISFSoftwareInfo -Publisher "Microsoft" -Name "$OfficeProduct")[-1] | select DisplayVersion,DisplayName
+		IF ($null -ne $Office) {
+			$OFName = $Office.DisplayName
+		    $OFVersion = $Office.DisplayVersion						#Version : 16.0.4266.1001
+		    $OFVersionShort = $OFVersion.substring(0, 4)  	#Version : 16.0
+			IF ($OFName -like "*Click-to-Run*") { $O365 = $true } ELSE { $O365 = $false}
+			Write-BISFLog -Msg "$OFName - $OFVersion installed" -ShowConsole -Color Cyan
+			IF ($O365 -eq $false) {
+				If ([Environment]::Is64BitOperatingSystem) {
+					$OfficeInstallRoot += (Get-ItemProperty -Path Registry::HKLM\SOFTWARE\Wow6432Node\Microsoft\Office\$($OFVersionShort)\Common\InstallRoot -Name Path -ErrorAction SilentlyContinue).Path
+				}
+				If ($OfficeInstallRoot -isnot [system.object]) { $OfficeInstallRoot += (Get-ItemProperty -Path Registry::HKLM\SOFTWARE\Microsoft\Office\$($OFVersionShort)\Common\InstallRoot -Name Path -ErrorAction SilentlyContinue).Path }
+			} ELSE {
+				If ([Environment]::Is64BitOperatingSystem) {
+					$OfficeInstallRoot += (Get-ItemProperty -Path Registry::HKLM\SOFTWARE\Wow6432Node\Microsoft\Office\ClickToRun -Name InstallPath -ErrorAction SilentlyContinue).InstallPath
+				}
+				If ($OfficeInstallRoot -isnot [system.object]) { $OfficeInstallRoot += (Get-ItemProperty -Path Registry::HKLM\SOFTWARE\Microsoft\Office\ClickToRun -Name InstallPath -ErrorAction SilentlyContinue).InstallPath }
 			}
-			If ($OfficeInstallRoot -isnot [system.object]) { $OfficeInstallRoot += (Get-ItemProperty -Path Registry::HKLM\SOFTWARE\Microsoft\Office\$($OFVersionShort)\Common\InstallRoot -Name Path -ErrorAction SilentlyContinue).Path }
+			Write-BISFLog -Msg "Installpath $OfficeInstallRoot " -ShowConsole -Color DarkCyan -SubMsg
+			$OSPPREARM = Get-ChildItem -Path $OfficeInstallRoot -filter "OSPPREARM.EXE" -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+			$OSPP = Get-ChildItem -Path $OfficeInstallRoot -filter "OSPP.vbs" -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+			IF ($null -eq $OSPPREARM) {
+				Write-BISFLog -Msg "OSPPrearm can't be detected in $OfficeInstallRoot, fallback to get the data from the registry" -ShowConsole -Color DarkCyan -SubMsg
+ 				If ([Environment]::Is64BitOperatingSystem) {
+					$OSPPREARMInstallRoot += (Get-ItemProperty -Path Registry::HKLM\SOFTWARE\Wow6432Node\Microsoft\OfficeSoftwareProtectionPlatform -Name Path -ErrorAction SilentlyContinue).Path
+				}
+				If ($OSPPREARMInstallRoot -isnot [system.object]) {
+					$OSPPREARMInstallRoot += (Get-ItemProperty -Path Registry::HKLM\SOFTWARE\Microsoft\OfficeSoftwareProtectionPlatform -Name Path -ErrorAction SilentlyContinue).Path
+				}
+				$OSPPREARM = Get-ChildItem -Path $OSPPREARMInstallRoot -filter "OSPPREARM.EXE" -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+			}
+			Write-BISFLog -Msg "OSPPrearm is installed in $OSPPREARM"
+			Write-BISFLog -Msg "OSPP is installed in $OSPP"
 		} ELSE {
-			If ([Environment]::Is64BitOperatingSystem) {
-				$OfficeInstallRoot += (Get-ItemProperty -Path Registry::HKLM\SOFTWARE\Wow6432Node\Microsoft\Office\ClickToRun -Name InstallPath -ErrorAction SilentlyContinue).InstallPath
-			}
-			If ($OfficeInstallRoot -isnot [system.object]) { $OfficeInstallRoot += (Get-ItemProperty -Path Registry::HKLM\SOFTWARE\Microsoft\Office\ClickToRun -Name InstallPath -ErrorAction SilentlyContinue).InstallPath }
+			Write-BISFLog "$OfficeProduct is NOT installed"
 		}
-		Write-BISFLog -Msg "Installpath $OfficeInstallRoot " -ShowConsole -Color DarkCyan -SubMsg
-		$OSPPREARM = Get-ChildItem -Path $OfficeInstallRoot -filter "OSPPREARM.EXE" -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
-		$OSPP = Get-ChildItem -Path $OfficeInstallRoot -filter "OSPP.vbs" -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
-		Write-BISFLog -Msg "OSPPrearm is installed in $OSPPREARM"
-		Write-BISFLog -Msg "OSPP is installed in $OSPP"
 	}
 
 	####################################################################
@@ -152,25 +171,23 @@ Begin {
 	#Rearm System
 	function RearmOffice {
 		IF ($OfficeInstallRoot -is [System.Object]) {
-			#$OSPPREARM = $OfficeInstallRoot + "OSPPREARM.EXE"
-			Write-BISFLog -Msg "Checking Office rearm status" -ShowConsole -Color Cyan
+			IF ($O365 -eq $true) {
+				Write-BISFLog -Msg "Office 365 detected, no rearm required" -ShowConsole -Color Cyan
+			} ELSE {
+				Write-BISFLog -Msg "Checking Office rearm status" -ShowConsole -Color Cyan
+			}
 		} ELSE {
 			Write-BISFLog -Msg "No Office Installation detected"
 		}
 
-
-		IF ($O365 -eq $true) {
-			$O365onAzure = Test-BISFAzureVM
-			IF ($O365onAzure -eq $true) {
-				Write-BISFLog -Msg "Office is hosted on a Microsoft Azure VM" -ShowConsole -Color DarkCyan -SubMsg
-				Start-BISFProcWithProgBar -ProcPath "$env:windir\system32\dsregcmd.exe" -Args "/leave" -ActText "Office - Performs Hybrid Unjoin"
-				Start-BISFProcWithProgBar -ProcPath "$env:windir\system32\dsregcmd.exe" -Args "/status" -ActText "Office - Displays the device join status"
-			}
-			ELSE {
-				Write-BISFLog -Msg "Office is NOT hosted on a Microsoft Azure VM" -Color DarkCyan -SubMsg
-			}
-
-
+		$O365onAzure = Test-BISFAzureVM
+		IF ($O365onAzure -eq $true) {
+			Write-BISFLog -Msg "Office is hosted on a Microsoft Azure VM" -ShowConsole -Color DarkCyan -SubMsg
+			Start-BISFProcWithProgBar -ProcPath "$env:windir\system32\dsregcmd.exe" -Args "/leave" -ActText "Office - Performs Hybrid Unjoin"
+			Start-BISFProcWithProgBar -ProcPath "$env:windir\system32\dsregcmd.exe" -Args "/status" -ActText "Office - Displays the device join status"
+		}
+		ELSE {
+			Write-BISFLog -Msg "Office is NOT hosted on a Microsoft Azure VM" -Color DarkCyan -SubMsg
 		}
 
 		IF ($null -ne $OSPPREARM) {
@@ -230,8 +247,6 @@ Begin {
 Process {
 
 	#### Main Program
-	#Loads the WinForm Assembly, Out-Null hides the message while loading.
-	[System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms") | Out-Null
 
 	RearmOffice
 	RearmOS
